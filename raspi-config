@@ -3,6 +3,7 @@
 #
 # See LICENSE file for copyright and license details
 
+DEBUG=1
 INTERACTIVE=True
 ASK_TO_REBOOT=0
 
@@ -523,7 +524,7 @@ done
 #fi
 
 # Everything else needs to be run as root
-if [ $(id -u) -ne 0 ]; then
+if [ $(id -u) -ne 0 ] && [ ! $DEBUG ] ; then
   printf "Script must be run as root. Try 'sudo raspi-config'\n"
   exit 1
 fi
@@ -577,12 +578,124 @@ do_advanced_menu() {
 }
 
 
+###------------------------------
+## LibraryBox customizations
+##
+
+PIRATEBOX_FOLDER=/opt/piratebox
+PIRATEBOX_CONF=$PIRATEBOX_FOLDER/conf/piratebox.conf
+
+do_librarybox_menu() {
+   FUN=$(whiptail --title "LibraryBox Customizations" --menu "LibraryBox customizations" $WT_HEIGHT $WT_WIDTH  $WT_MENU_HEIGHT --cancel-button "Finish" --ok-button "Select" \
+   "10 Timesave" "(LibraryBox) Set time and enable timesave"  \
+    "11 Activate USB" "(LibraryBox) Activate USB"  \
+    "12 Enable Librarybox" "(LibraryBox) Enable LibraryBox for Startup"  \
+    "13 FTP-Config" "(LibraryBox) Launch FTP configuration" \
+	3>&1 1>&2 2>&3 )
+  RET=$?
+  if [ $RET -eq 1 ]; then 
+     return 0
+  else
+	if [ $RET -eq 0 ] ; then
+		case "$FUN" in
+			10\ *) lbx_do_timesave ;;
+			11\ *) lbx_do_usb_config ;;
+			12\ *) lbx_do_startup ;;
+			13\ *) lbx_do_ftp_config ;;
+	      	esac || whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 
+  	fi
+  fi
+
+}
+
+#Enables cron service and brings the timesave script into the 
+#  rc.local startup script
+lbx_do_timesave() {
+
+	$PIRATEBOX_FOLDER/bin/timesave.sh install
+
+	
+  	cat <<\EOF > /etc/init.d/timesave_recover &&
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          timesave_recover
+# Required-Start:    $all
+# Required-Stop:
+# Default-Start: 2 3 4 5 S
+# Default-Stop:
+# Short-Description: Recover last known date&time
+# Description:
+### END INIT INFO
+
+. /lib/lsb/init-functions
+
+case "$1" in
+  start)
+    log_daemon_msg "Starting timesave recover" &&
+	/opt/piratebox/bin/timesave.sh /opt/piratebox/conf/piratebox.conf recover
+    log_end_msg $?
+    ;;
+  *)
+    echo "Usage: $0 start" >&2
+    exit 3
+    ;;
+esac
+EOF
+    chmod +x /etc/init.d/timesave_recover &&
+    update-rc.d timesave_recover defaults 
+
+}
+
+lbx_do_usb_config() {
+
+
+	continue
+	return 0
+
+	# ask with usb stick name & uid
+	# after confirmation
+		# insert into fstab + Mountpoint
+		# create folder LibraryBox on USB Stick
+		# move content of /opt/piratebox/share to USB Stick
+		# link opt piratebox share to <usb stick>/Librarybox 
+		### confirmation message
+
+}
+
+lbx_do_startup() {
+	#Enable LibraryBox during bootup.
+ whiptail --yesno "Would you like LibraryBox enabled or disabled?" 20 60 2 \
+    --yes-button Enable --no-button Disable
+  RET=$?
+  if [ $RET -eq 0 ]; then
+    update-rc.d piratebox enable &&
+    invoke-rc.d piratebox start &&
+    whiptail --msgbox "LibraryBox enabled" 20 60 1
+  elif [ $RET -eq 1 ]; then
+    update-rc.d piratebox disable &&
+    whiptail --msgbox "LibraryBox disabled" 20 60 1
+  else
+    return $RET
+  fi
+  return 0
+
+}
+
+
+lbx_do_ftp_configi() {
+	clear
+	. /opt/piratebox/bin/ftp_enable.sh
+	return $?
+
+}
+
 #
 # Interactive use loop
 #
 calc_wt_size
 while true; do
   FUN=$(whiptail --title "Raspberry Pi Software Configuration Tool (raspi-config)" --menu "Setup Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Finish --ok-button Select \
+    "10 LibraryBox" "Customization of LibraryBox"  \
     "1 Expand Filesystem" "Ensures that all of the SD card storage is available to the OS" \
     "2 Change User Password" "Change password for the default user (pi)" \
     "3 Enable Boot to Desktop" "Choose whether to boot into a desktop environment or the command-line" \
@@ -592,10 +705,6 @@ while true; do
     "7 Overclock" "Configure overclocking for your Pi" \
     "8 Advanced Options" "Configure advanced settings" \
     "9 About raspi-config" "Information about this configuration tool" \
-    "10 (LibraryBox) Set time and enable timesave" \
-    "11 (LibraryBox) Activate USB"\
-    "12 (LibraryBox) Enable LibraryBox for Startup" \ 
-    "13 (LibraryBox) Launch FTP configuration" \
     3>&1 1>&2 2>&3)
   RET=$?
   if [ $RET -eq 1 ]; then
@@ -611,11 +720,8 @@ while true; do
       7\ *) do_overclock ;;
       8\ *) do_advanced_menu ;;
       9\ *) do_about ;;
-      10\ *) do_lbx_timesave ;;
-      11\ *) do_lbx_usb_enable ;;
-      12\ *) do_lbx_for_startup ;;
-      13\ *) do_lbx_ftp_config ;;
-      *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+      10\ *) do_librarybox_menu ;;
+
     esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
   else
     exit 1
